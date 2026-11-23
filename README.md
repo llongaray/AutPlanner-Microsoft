@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.2.1 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.2.2 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -37,6 +37,7 @@ AutPlanner-Microsoft/
 4. Abra `chrome://extensions` no **perfil Chrome autenticado**; ative **Modo do desenvolvedor** e clique **Carregar sem compactação**.
 5. Selecione a **raiz do repositório clonado**, onde está o arquivo `manifest.json`.
 6. Abra o Microsoft Planner em outra aba, feche o DevTools dessa aba e clique no ícone da extensão para abrir o painel.
+7. **Alternativa à cópia:** no painel, importe os arquivos `cards.json` e `config.local.json` pelos campos de seleção. A extensão armazenará os dois no `chrome.storage.local`; não será necessário repetir a importação ao recarregar a extensão no mesmo perfil.
 
 Os arquivos `config.local.json` e `cards.json` são **locais e ignorados pelo Git**: não publique IDs de tarefas, URLs de planos, dados de colaboradores ou informações internas da empresa em um repositório público.
 
@@ -103,3 +104,11 @@ GPL-3.0 — consulte [LICENSE](LICENSE).
 A extensão **navega somente ao mudar de Story**. A conferência depois de inserir cada item e a validação final consultam a checklist na aba já aberta, sem repetir `chrome.tabs.update` para a mesma URL. Isso reduz recarregamentos, perda de foco e lentidão.
 
 **Nota de validação:** a leitura sem refresh confirma a presença do item na interface atual, mas não é prova independente de persistência no servidor. Para uma verificação adicional, reabra manualmente a Story depois do lote. Em caso de erro, a rotina pára sem excluir ou duplicar itens.
+
+## Correção 4.2.2 — Erro Failed to fetch
+
+Quando o repositório é clonado, os arquivos com IDs privados **não existem na pasta pública**, pois são ignorados pelo Git. Isso fazia a tela apresentar `Erro de configuração: Failed to fetch` e a lista ficava vazia.
+
+Agora a extensão procura primeiro os dados em `chrome.storage.local`, usa os JSON locais da pasta como alternativa e, se não encontrar, mostra **quais arquivos faltam** com botões para importar os JSON pelo painel. Depois da importação, os dados ficam no perfil do Chrome. Importar novamente substitui a configuração anterior no armazenamento da extensão; não altera cartões no Planner.
+
+Se a extensão for removida e instalada novamente com outro ID, talvez seja necessário importar os arquivos novamente. Mantenha uma cópia segura, fora de um repositório público.

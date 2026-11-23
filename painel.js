@@ -26,16 +26,65 @@ function selectWhere(predicate) {
   for (const card of cards) document.querySelector('input[data-code="' + CSS.escape(card.code) + '"]').checked = predicate(card);
   count();
 }
-async function jsonFile(filename) {
-  const response = await fetch(chrome.runtime.getURL(filename));
-  if (!response.ok) throw new Error('Arquivo ' + filename + ' não encontrado. Leia o README para criar a configuração local.');
-  return response.json();
+// Os dados são privados: não fazem parte do repositório público.
+const validateCards = value => {
+  if (!Array.isArray(value) || !value.length || !value.every(c =>
+    typeof c.code === 'string' && typeof c.id === 'string' &&
+    Array.isArray(c.tasks) && c.tasks.every(t => typeof t === 'string'))) {
+    throw Error('cards.json inválido. Esperado: lista com code, id, title e tasks.');
+  }
+  if (new Set(value.map(c => c.code)).size !== value.length)
+    throw Error('cards.json contém códigos duplicados.');
+  return value;
+};
+const validateConfig = value => {
+  if (!value || typeof value !== 'object' ||
+      !/^https:\/\/planner\.cloud\.microsoft\//.test(value.taskUrlBase || '') ||
+      !value.taskUrlBase.endsWith('/task/') || !value.tid) {
+    throw Error('config.local.json inválido. Informe taskUrlBase HTTPS terminado em /task/ e tid.');
+  }
+  return value;
+};
+async function optionalBundled(filename) {
+  try {
+    const result = await fetch(chrome.runtime.getURL(filename));
+    return result.ok ? await result.json() : null;
+  } catch { return null; }
 }
-async function init() {
-  [cards, config] = await Promise.all([jsonFile('cards.json'),jsonFile('config.local.json')]);
-  if (!Array.isArray(cards) || !cards.length || !cards.every(c => c.code && c.id && Array.isArray(c.tasks))) throw Error('cards.json inválido: informe code, id e tasks de cada Story.');
-  if (!/^https:\/\/planner\.cloud\.microsoft\//.test(config.taskUrlBase || '') || !config.taskUrlBase.endsWith('/task/')) throw Error('config.local.json: taskUrlBase deve ser a URL HTTPS do Planner terminada em /task/.');
-  if (!config.tid) throw Error('config.local.json: informe tid.');
+async function loadStored() {
+  const stored = await chrome.storage.local.get(['cardsData', 'plannerConfig']);
+  let loadedCards = stored.cardsData;
+  let loadedConfig = stored.plannerConfig;
+  if (!loadedCards) loadedCards = await optionalBundled('cards.json');
+  if (!loadedConfig) loadedConfig = await optionalBundled('config.local.json');
+  return [loadedCards, loadedConfig];
+}
+function setupStatus(message) {
+  $('#setup-status').textContent = message;
+  status(message);
+}
+async function importFiles() {
+  if (running) return setupStatus('Não é possível alterar a configuração durante uma execução.');
+  const cardsFile = $('#cards-file').files[0];
+  const configFile = $('#config-file').files[0];
+  if (!cardsFile && !configFile)
+    return setupStatus('Selecione cards.json e config.local.json, ou pelo menos o arquivo que falta.');
+  try {
+    const [previousCards, previousConfig] = await loadStored();
+    const parsedCards = cardsFile ? JSON.parse(await cardsFile.text()) : previousCards;
+    const parsedConfig = configFile ? JSON.parse(await configFile.text()) : previousConfig;
+    cards = validateCards(parsedCards);
+    config = validateConfig(parsedConfig);
+    await chrome.storage.local.set({cardsData: cards, plannerConfig: config});
+    renderCards();
+    $('#setup-status').textContent = 'Configuração importada e armazenada neste perfil do Chrome. ' + cards.length + ' cards.';
+    $('#cards-file').value = '';
+    $('#config-file').value = '';
+  } catch (error) {
+    setupStatus('Falha ao importar: ' + error.message);
+  }
+}
+function renderCards() {
   $('#list').replaceChildren();
   for (const card of cards) {
     const label = document.createElement('label');
@@ -54,6 +103,24 @@ async function init() {
   $('#copy').onclick = () => navigator.clipboard.writeText($('#log').textContent);
   selectWhere(() => false);
   status('Configuração carregada. Selecione uma Story para o primeiro teste.');
+}
+async function init() {
+  $('#import').addEventListener('click', importFiles);
+  $('#copy').onclick = () => navigator.clipboard.writeText($('#log').textContent);
+  $('#setup-status').textContent = 'Carregando configuração local...';
+  try {
+    const [loadedCards, loadedConfig] = await loadStored();
+    if (!loadedCards || !loadedConfig) {
+      const missing = [!loadedCards && 'cards.json', !loadedConfig && 'config.local.json'].filter(Boolean).join(' e ');
+      return setupStatus('Configuração ausente: ' + missing + '. Importe o(s) arquivo(s) abaixo.');
+    }
+    cards = validateCards(loadedCards);
+    config = validateConfig(loadedConfig);
+    renderCards();
+    $('#setup-status').textContent = 'Configuração pronta: ' + cards.length + ' cards. Seus dados ficam armazenados localmente neste perfil.';
+  } catch (error) {
+    setupStatus('Erro na configuração: ' + error.message + '. Reimporte os arquivos.');
+  }
 }
 async function script(fn,args=[]) {
   const results=await chrome.scripting.executeScript({target:{tabId},func:fn,args});

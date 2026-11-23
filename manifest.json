@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "ARAY Planner — Checklists",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "Automação de checklists do Microsoft Planner com validação da persistência.",
   "permissions": [
     "tabs",
     "scripting",
+    "storage",
     "debugger"
   ],
   "host_permissions": [
