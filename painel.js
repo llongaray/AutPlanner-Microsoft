@@ -2,6 +2,8 @@
 const $ = selector => document.querySelector(selector);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const norm = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
+const taskText = task => typeof task === 'string' ? task : task.text;
+const taskCompleted = task => typeof task !== 'string' && task.completed === true;
 let cards = [], config = {}, running = false, cancelled = false, tabId = null, attached = false;
 let boardContext = null; // Capturado da aba autenticada, nunca dos placeholders JSON.
 let totals = {cards:0,added:0,existing:0,errors:0};
@@ -32,11 +34,18 @@ const validateCards = value => {
   if (!Array.isArray(value) || !value.length || !value.every(c =>
     typeof c.code === 'string' && typeof c.id === 'string' &&
     !/SUBSTITUIR|EXEMPLO|PLACEHOLDER|SEU_ID/i.test(c.id) &&
-    Array.isArray(c.tasks) && c.tasks.every(t => typeof t === 'string'))) {
+    Array.isArray(c.tasks) && c.tasks.every(t =>
+      typeof t === 'string' && t.trim().length > 0 ||
+      t && typeof t === 'object' && typeof t.text === 'string' &&
+      t.text.trim().length > 0 && (t.completed === undefined || typeof t.completed === 'boolean')))) {
     throw Error('cards.json inválido. Esperado: lista com code, id, title e tasks.');
   }
   if (new Set(value.map(c => c.code)).size !== value.length)
     throw Error('cards.json contém códigos duplicados.');
+  for (const card of value) {
+    if (new Set(card.tasks.map(x => norm(taskText(x)))).size !== card.tasks.length)
+      throw Error(card.code + ': checklist com itens duplicados no JSON.');
+  }
   return value;
 };
 const validateConfig = value => {
@@ -267,6 +276,79 @@ async function insert(card,item){
   if(await persisted(card,item))return 'added';
   throw Error('O Planner não confirmou a persistência do item: '+item);
 }
+
+function locateChecklistCheckbox(item) {
+  const normalized = text => String(text || '').normalize('NFKC').replace(/\s+/g,' ').trim().toLocaleLowerCase('pt-BR');
+  const visible = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+  const isCheck = el => el.matches('input[type="checkbox"],[role="checkbox"],button[aria-checked]');
+  const candidates = [...document.querySelectorAll('span,label,div,p,input,textarea,[contenteditable]')]
+    .filter(el => visible(el) && !el.matches('[type="checkbox"]') && normalized(el.value || el.textContent) === normalized(item))
+    .sort((a,b) => a.querySelectorAll('*').length-b.querySelectorAll('*').length);
+  for (const candidate of candidates) {
+    let row = candidate;
+    for (let depth=0; depth<6 && row;depth++,row=row.parentElement) {
+      const bounds=row.getBoundingClientRect();
+      if (bounds.height>125 || bounds.width<150) break;
+      const boxes=[...row.querySelectorAll('input[type="checkbox"],[role="checkbox"],button[aria-checked]')].filter(visible);
+      if (boxes.length !== 1) continue;
+      const checkbox=boxes[0];
+      const rect=checkbox.getBoundingClientRect();
+      const aria=checkbox.getAttribute('aria-checked');
+      const checked=checkbox.matches('input') ? checkbox.checked : (aria === 'true');
+      return {found:true,checked:!!checked,x:rect.left+rect.width/2,y:rect.top+rect.height/2};
+    }
+  }
+  return {found:false};
+}
+async function setNewTaskCompleted(card,text) {
+  // Nunca altera tarefas preexistentes. Chamado apenas quando insert() confirmou criação.
+  let state=await script(locateChecklistCheckbox,[text]);
+  if (!state?.found) throw Error(card.code+': não localizei o checkbox do item novo para marcar como concluído: '+text);
+  if (state.checked) return;
+  await click(Math.round(state.x),Math.round(state.y));
+  for(let i=0;i<5;i++) {
+    await sleep(450);
+    state=await script(locateChecklistCheckbox,[text]);
+    if (state?.found && state.checked) return;
+  }
+  throw Error(card.code+': o Planner não confirmou a conclusão da Task nova: '+text);
+}
+function locateCloseButton(code) {
+  const normLocal=t=>String(t || '').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
+  const vis=el=>!!el?.getClientRects().length&&getComputedStyle(el).visibility!=='hidden';
+  const dialogs=[...document.querySelectorAll('[role="dialog"],[aria-modal="true"]')].filter(vis);
+  const dialog=dialogs.find(el=>normLocal(el.textContent).includes(normLocal(code)))||dialogs[0];
+  if(!dialog) return {found:false,reason:'nenhum diálogo aberto'};
+  const box=dialog.getBoundingClientRect();
+  const buttons=[...dialog.querySelectorAll('button,[role="button"]')].filter(vis);
+  // Preferência: botão Fechar no cabeçalho; nunca usar controles do chat ou do checklist.
+  const matches=buttons.filter(el=>{
+    const r=el.getBoundingClientRect();
+    if(r.top>box.top+110 || r.right<box.right-125) return false;
+    const name=[el.getAttribute('aria-label'),el.getAttribute('title'),el.textContent].join(' ').trim();
+    return /fechar|close|dismiss/i.test(name) || (!name && !!el.querySelector('svg'));
+  }).sort((a,b)=>b.getBoundingClientRect().right-a.getBoundingClientRect().right);
+  if(!matches.length) return {found:false,reason:'botão fechar não identificado no cabeçalho'};
+  const r=matches[0].getBoundingClientRect();
+  return {found:true,x:r.left+r.width/2,y:r.top+r.height/2};
+}
+async function closeFinishedCard(card) {
+  const button=await script(locateCloseButton,[card.code]);
+  if(!button?.found) {
+    // Evita clicar no controle errado caso o Planner altere o DOM.
+    log(card.code+': checklist concluído; feche manualmente o card ('+(button?.reason||'seletor indisponível')+').');
+    return false;
+  }
+  await click(Math.round(button.x),Math.round(button.y));
+  for(let i=0;i<6;i++) {
+    await sleep(250);
+    const view=await script(inspect,[card.code]);
+    if(!view?.ready) { log(card.code+': janela do card fechada'); return true; }
+  }
+  log(card.code+': itens validados, mas não foi possível confirmar o fechamento do card.');
+  return false;
+}
+
 async function run(){
   if(running)return;
   const queue=selected();
@@ -287,31 +369,40 @@ async function run(){
       await navigate(card);
       for(let i=0;i<card.tasks.length;i++){
         if(cancelled)break;
-        const item=card.tasks[i];
+        const task=card.tasks[i];
+        const item=taskText(task);
         if(exists(await script(inspect,[card.code]),item)){
           totals.existing++;
           log(card.code+': '+(i+1)+'/'+card.tasks.length+' já existente');
           continue;
         }
         const result=await insert(card,item);
-        if(result==='added'){totals.added++;log(card.code+': '+(i+1)+'/'+card.tasks.length+' inserido');}
+        if(result==='added'){
+          totals.added++;
+          log(card.code+': '+(i+1)+'/'+card.tasks.length+' inserido');
+          if(taskCompleted(task)) {
+            await setNewTaskCompleted(card,item);
+            log(card.code+': '+(i+1)+'/'+card.tasks.length+' marcado como concluído');
+          }
+        }
         else{totals.existing++;log(card.code+': '+(i+1)+'/'+card.tasks.length+' já existente');}
         const scan=await script(inspect,[card.code]);
         if(!exists(scan,item)&&!(await persisted(card,item)))throw Error(card.code+': item não persistiu: '+item);
       }
       if(cancelled)break;
       let final=await script(inspect,[card.code]);
-      let missing=card.tasks.filter(item=>!exists(final,item));
+      let missing=card.tasks.filter(task=>!exists(final,taskText(task)));
       for(let retry=1;missing.length&&retry<=4;retry++){
         log(card.code+': aguardando atualização da lista '+retry+'/4 (sem atualizar página)');
         await sleep(1800);
         final=await script(inspect,[card.code]);
-        missing=card.tasks.filter(item=>!exists(final,item));
+        missing=card.tasks.filter(task=>!exists(final,taskText(task)));
       }
-      if(missing.length)throw Error(card.code+': itens não confirmados: '+missing.join(' | '));
+      if(missing.length)throw Error(card.code+': itens não confirmados: '+missing.map(taskText).join(' | '));
       totals.cards++;
       $('#progress').value=100*totals.cards/queue.length;
       log('SUCESSO '+card.code+': '+card.tasks.length+' itens validados');
+      await closeFinishedCard(card);
     }
     status(cancelled?'Interrompido pelo usuário.':'SUCESSO! '+totals.cards+' Stories validadas; '+totals.added+' itens inseridos.');
     log(cancelled?'Interrompido':'FINALIZADO COM SUCESSO');

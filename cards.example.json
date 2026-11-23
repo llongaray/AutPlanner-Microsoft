@@ -4,8 +4,14 @@
     "title": "ZBX-US02 — Exemplo de checklist",
     "id": "SUBSTITUIR_PELO_ID_DA_TAREFA",
     "tasks": [
-      "Verificar conexão com a API",
-      "Validar dados coletados"
+      {
+        "text": "Verificar conexão com a API",
+        "completed": false
+      },
+      {
+        "text": "Validar dados coletados",
+        "completed": false
+      }
     ]
   }
 ]

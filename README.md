@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.2.4 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.3.0 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -122,3 +122,11 @@ Para usar as 16 Stories reais, importe o pacote **ARAY_Planner_Configuracao_Comp
 ## Correção 4.2.4 — URL do Planner (rota /ui/web/plan/)
 
 Corrigido o reconhecimento do formato atual `https://planner.cloud.microsoft/ui/web/plan/<planId>/view/board?tid=<tenantId>`, além das rotas legadas `/webui/v1/plan/` e `/webui/plan/`. A extensão conserva o caminho da aba autenticada e somente troca o card ao passar de uma Story para outra, sem recarregar a mesma URL durante a verificação dos checklists.
+
+## Atualização 4.3.0 — Status dos itens e fechamento dos cards
+
+A extensão aceita as checklists no JSON com objetos `{"text":"Descrição","completed":false}`. O campo `completed` é opcional e **false é o padrão**. Para uma Task nova com `completed:true`, o programa tenta marcar o checkbox e verifica a marcação. Tarefas **já existentes não são alteradas**, independentemente do valor de `completed`: é uma proteção contra mudanças involuntárias.
+
+O formato antigo de strings continua aceito (interpretado como `completed:false`). Ao concluir a validação de uma Story, a extensão procura o botão **Fechar** no cabeçalho do modal e tenta fechar a janela. Se o botão não puder ser identificado com segurança, deixa o card aberto e registra aviso sem apagar ou alterar dados.
+
+**Atenção:** marcar como concluído depende do controle HTML atual do Planner. Execute um teste com apenas uma Story antes de processar todas. A validação da existência dos textos continua na aba corrente, sem recarregar repetidamente.
