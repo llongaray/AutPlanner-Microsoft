@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.3.0 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.3.1 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -130,3 +130,9 @@ A extensão aceita as checklists no JSON com objetos `{"text":"Descrição","com
 O formato antigo de strings continua aceito (interpretado como `completed:false`). Ao concluir a validação de uma Story, a extensão procura o botão **Fechar** no cabeçalho do modal e tenta fechar a janela. Se o botão não puder ser identificado com segurança, deixa o card aberto e registra aviso sem apagar ou alterar dados.
 
 **Atenção:** marcar como concluído depende do controle HTML atual do Planner. Execute um teste com apenas uma Story antes de processar todas. A validação da existência dos textos continua na aba corrente, sem recarregar repetidamente.
+
+## Correção 4.3.1 — Foco instável ao inserir checklists
+
+Depois de inserir uma Task, o Planner pode recriar o campo `Adicionar um item` e perder o foco sem qualquer interação do usuário. A extensão agora realiza até **cinco tentativas controladas** de localizar o campo vazio, rola-o até a área visível, confere a identidade do campo focado e, se necessário, clica no seu centro pelo Chrome DevTools Protocol. A cada tentativa, a lista é conferida novamente para não duplicar um item já incluído. A extensão nunca digita sobre um campo ocupado.
+
+A verificação continua sem reload por Task, e os comportamentos `completed:false` e fechamento automático permanecem. Se o foco não puder ser confirmado, a execução é interrompida sem sobrescrever texto. **Teste inicialmente a ZBX-US09** e confira o item que já foi incluído anteriormente.

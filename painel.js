@@ -203,31 +203,42 @@ function inspect(code){
 }
 const exists=(scan,item)=>scan?.texts?.includes(norm(item));
 function focusEntry(){
-  const n=x=>String(x??'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
-  const vis=e=>!!e?.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
-  const pattern=/adicionar um item|adicionar (uma )?etapa|add (an )?item|new checklist|novo item/i;
-  const fields=()=>[...document.querySelectorAll('input,textarea,[contenteditable="true"],[role="textbox"]')].filter(vis);
-  const matches=e=>pattern.test([e.placeholder,e.getAttribute('aria-label'),e.getAttribute('data-placeholder')].join(' '));
-  let field=fields().find(e=>matches(e)&&!(e.value||e.textContent||'').trim());
+  const vis = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+  const pattern = /adicionar um item|adicionar (uma )?etapa|add (an )?item|new checklist|novo item/i;
+  const fields = () => [...document.querySelectorAll('input,textarea,[contenteditable="true"],[role="textbox"]')].filter(vis);
+  const matches = el => pattern.test([
+    el.getAttribute('placeholder'),el.getAttribute('aria-label'),el.getAttribute('data-placeholder')
+  ].filter(Boolean).join(' '));
+  // Cada tentativa deve abandonar a referência anterior: o Planner recria o input via React.
+  const inputs = fields();
+  inputs.forEach(el => delete el.dataset.arayChecklistEntry);
+  let field = inputs.find(el => matches(el) && !(el.value || el.textContent || '').trim());
   if(!field){
-    const targets=[...document.querySelectorAll('span,p,button,div,[role="button"]')].filter(vis).filter(e=>{
-      const text=n(e.textContent);
-      return text&&text.length<140&&/^(adicionar um item|adicione etapas para concluir esta tarefa.*|adicionar (uma )?etapa|add an item|add checklist item)/.test(text)&&(!e.children.length||e.matches('button,[role="button"]'));
+    const n = text => String(text||'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
+    const targets = [...document.querySelectorAll('span,p,button,div,[role="button"]')].filter(vis).filter(el=>{
+      const text=n(el.textContent);
+      return text && text.length<140 &&
+        /^(adicionar um item|adicione etapas para concluir esta tarefa.*|adicionar (uma )?etapa|add an item|add checklist item)/.test(text) &&
+        (!el.children.length || el.matches('button,[role="button"]'));
     });
-    if(targets.length)targets[targets.length-1].click();
-    field=fields().find(e=>matches(e)&&!(e.value||e.textContent||'').trim());
+    if(targets.length) targets[targets.length-1].click();
+    field = fields().find(el => matches(el) && !(el.value || el.textContent || '').trim());
   }
-  if(!field)return{ok:false,error:'Campo de adicionar etapa não encontrado.'};
-  field.focus();
-  const box=field.getBoundingClientRect();
-  return{ok:true,x:box.x,y:box.y};
+  if(!field) return {ok:false,error:'Campo vazio de adicionar etapa não encontrado.'};
+  field.scrollIntoView({block:'nearest',inline:'nearest'});
+  field.dataset.arayChecklistEntry = '1';
+  field.focus({preventScroll:true});
+  const rect = field.getBoundingClientRect();
+  if(rect.width < 5 || rect.height < 5) return {ok:false,error:'Campo de checklist sem dimensões válidas.'};
+  return {ok:true,focused:document.activeElement===field,x:rect.x+rect.width/2,y:rect.y+rect.height/2};
 }
 function inspectActive(){
-  const el=document.activeElement;
-  return{
+  const el = document.activeElement;
+  return {
     label:[el?.getAttribute('placeholder'),el?.getAttribute('aria-label'),el?.getAttribute('data-placeholder')].filter(Boolean).join(' '),
-    value:el?.value??el?.textContent??'',
-    editable:!!el&&el.matches('input,textarea,[contenteditable="true"],[role="textbox"]')
+    value:el?.value ?? el?.textContent ?? '',
+    editable:!!el && el.matches('input,textarea,[contenteditable="true"],[role="textbox"]'),
+    newChecklistEntry:!!el && el.isConnected && el.dataset.arayChecklistEntry === '1'
   };
 }
 async function click(x,y){
@@ -255,28 +266,49 @@ async function persisted(card,item){
   return false;
 }
 async function insert(card,item){
-  if(exists(await script(inspect,[card.code]),item))return 'existing';
-  let field=await script(focusEntry);
-  if(!field?.ok){await sleep(500);field=await script(focusEntry);}
-  if(!field?.ok)throw Error(field?.error||'Campo de nova etapa não encontrado.');
-  await click(Math.round(field.x+40),Math.round(field.y+12));
-  await sleep(160);
-  const before=await script(inspectActive);
-  if(!before?.editable||!/adicionar um item|adicionar (uma )?etapa|add (an )?item|new checklist|novo item/i.test(before.label||''))throw Error('Foco não está no campo de nova etapa.');
-  if(norm(before.value)!=='')throw Error('Campo de nova etapa não está vazio; cancelado para evitar sobrescrita.');
+  if(exists(await script(inspect,[card.code]),item)) return 'existing';
+  let ready=false, lastReason='';
+  // O DOM da tarefa pode mudar imediatamente após um Enter. O campo é localizado
+  // novamente, em vez de reutilizar coordenadas ou referências de um input anterior.
+  for(let attempt=1;attempt<=5;attempt++){
+    if(cancelled) throw Error('Interrompido pelo usuário.');
+    if(exists(await script(inspect,[card.code]),item)) return 'existing';
+    await sleep(attempt===1?250:450);
+    const entry=await script(focusEntry);
+    if(!entry?.ok){lastReason=entry?.error||'campo não encontrado';continue;}
+    // O foco por DOM pode bastar. Caso o Planner exija ativação, usa clique CDP no centro real.
+    let active=await script(inspectActive);
+    if(!active?.newChecklistEntry || !active?.editable){
+      await click(Math.round(entry.x),Math.round(entry.y));
+      await sleep(200);
+      active=await script(inspectActive);
+    }
+    if(!active?.newChecklistEntry || !active?.editable){
+      lastReason='o Planner recriou o campo antes de confirmar o foco';
+      log(card.code+': aguardando campo de nova etapa ('+attempt+'/5)');
+      continue;
+    }
+    if(norm(active.value)!==''){
+      lastReason='campo de nova etapa não está vazio';
+      log(card.code+': foco em campo ocupado; nova tentativa segura ('+attempt+'/5)');
+      continue;
+    }
+    ready=true;
+    break;
+  }
+  if(!ready) throw Error(card.code+': foco não estabilizou após 5 tentativas ('+lastReason+'); nenhum texto foi sobrescrito.');
   await cdp('Input.insertText',{text:item});
-  await sleep(400);
+  await sleep(450);
   const after=await script(inspectActive);
   if(norm(after?.value)!==norm(item)){
-    if(await persisted(card,item))return 'added';
-    throw Error('Texto não foi confirmado, nem persistiu: '+item);
+    if(await persisted(card,item)) return 'added';
+    throw Error(card.code+': texto do novo item não confirmado, interrupção segura: '+item);
   }
   await enter();
   await sleep(700);
-  if(await persisted(card,item))return 'added';
-  throw Error('O Planner não confirmou a persistência do item: '+item);
+  if(await persisted(card,item)) return 'added';
+  throw Error(card.code+': Planner não confirmou a persistência do item: '+item);
 }
-
 function locateChecklistCheckbox(item) {
   const normalized = text => String(text || '').normalize('NFKC').replace(/\s+/g,' ').trim().toLocaleLowerCase('pt-BR');
   const visible = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
