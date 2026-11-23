@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.2.2 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.2.3 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -112,3 +112,9 @@ Quando o repositório é clonado, os arquivos com IDs privados **não existem na
 Agora a extensão procura primeiro os dados em `chrome.storage.local`, usa os JSON locais da pasta como alternativa e, se não encontrar, mostra **quais arquivos faltam** com botões para importar os JSON pelo painel. Depois da importação, os dados ficam no perfil do Chrome. Importar novamente substitui a configuração anterior no armazenamento da extensão; não altera cartões no Planner.
 
 Se a extensão for removida e instalada novamente com outro ID, talvez seja necessário importar os arquivos novamente. Mantenha uma cópia segura, fora de um repositório público.
+
+## Correção 4.2.3 — TenantId not found e configuração de exemplo
+
+A versão anterior aceitava um `tid` fictício e um ID de tarefa de exemplo, que levavam a uma tela JSON `TenantId not found`. Agora os campos de importação rejeitam placeholders, validam o formato UUID de `tid` e a navegação **usa o contexto do tenant da aba do Planner que já está autenticada** (em vez de injetar o `tid` do arquivo na URL). A extensão só navega entre Stories, sem fazer refresh em cada item de checklist.
+
+Para usar as 16 Stories reais, importe o pacote **ARAY_Planner_Configuracao_Completa_ZBX.zip** entregue separadamente, contendo `cards.json` e `config.local.json`, no próprio painel. O repositório continua público sem IDs internos da organização. Após atualizar, feche e reabra a aba do painel e, se necessário, recarregue a extensão em `chrome://extensions`.

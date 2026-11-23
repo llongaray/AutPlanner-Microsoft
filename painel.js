@@ -3,6 +3,7 @@ const $ = selector => document.querySelector(selector);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const norm = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
 let cards = [], config = {}, running = false, cancelled = false, tabId = null, attached = false;
+let boardContext = null; // Capturado da aba autenticada, nunca dos placeholders JSON.
 let totals = {cards:0,added:0,existing:0,errors:0};
 
 function log(message) {
@@ -30,6 +31,7 @@ function selectWhere(predicate) {
 const validateCards = value => {
   if (!Array.isArray(value) || !value.length || !value.every(c =>
     typeof c.code === 'string' && typeof c.id === 'string' &&
+    !/SUBSTITUIR|EXEMPLO|PLACEHOLDER|SEU_ID/i.test(c.id) &&
     Array.isArray(c.tasks) && c.tasks.every(t => typeof t === 'string'))) {
     throw Error('cards.json inválido. Esperado: lista com code, id, title e tasks.');
   }
@@ -40,7 +42,8 @@ const validateCards = value => {
 const validateConfig = value => {
   if (!value || typeof value !== 'object' ||
       !/^https:\/\/planner\.cloud\.microsoft\//.test(value.taskUrlBase || '') ||
-      !value.taskUrlBase.endsWith('/task/') || !value.tid) {
+      !value.taskUrlBase.endsWith('/task/') ||
+      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value.tid || '')) {
     throw Error('config.local.json inválido. Informe taskUrlBase HTTPS terminado em /task/ e tid.');
   }
   return value;
@@ -130,32 +133,53 @@ async function cdp(method,params={}) {return chrome.debugger.sendCommand({tabId}
 function isPlanner(url) {
   try {return ['planner.cloud.microsoft','tasks.office.com'].includes(new URL(url).hostname);} catch {return false;}
 }
+function boardFromTab(url) {
+  const parsed = new URL(url);
+  if (parsed.hostname !== 'planner.cloud.microsoft') return null;
+  const match = parsed.pathname.match(/^(\/webui\/(?:v1\/)?plan\/[^/]+\/view\/board)(?:\/task\/[^/]+)?\/?$/);
+  if (!match) return null;
+  parsed.pathname = match[1];
+  parsed.hash = '';
+  const tenant = parsed.searchParams.get('tid');
+  if (!tenant || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(tenant)) return null;
+  return parsed;
+}
 async function findTab() {
-  const tabs=(await chrome.tabs.query({})).filter(t=>isPlanner(t.url));
+  const tabs = (await chrome.tabs.query({})).filter(t => isPlanner(t.url));
   if (!tabs.length) throw Error('Abra o Planner em uma aba deste perfil antes de executar.');
-  return tabs.find(t=>t.active) || tabs[0];
+  const candidate = tabs.find(t => boardFromTab(t.url) && /\/view\/board(?:\/|$)/.test(new URL(t.url).pathname));
+  if (!candidate) throw Error('Abra o plano DEMANDAS - NI2 na visualização Quadro antes de iniciar.');
+  boardContext = boardFromTab(candidate.url);
+  log('Plano autenticado reconhecido pela URL da aba aberta; contexto de tenant validado.');
+  return candidate;
 }
 async function navigate(card) {
-  const url=config.taskUrlBase+encodeURIComponent(card.id)+'?tid='+encodeURIComponent(config.tid);
-  // Altere a URL apenas na mudança de Story. A leitura não deve causar reload.
+  if (!boardContext) throw Error('Contexto de autenticação do Planner não carregado.');
+  const target = new URL(boardContext.href);
+  target.pathname = boardContext.pathname.replace(/\/$/, '') + '/task/' + encodeURIComponent(card.id);
+  // Preservar a query-string da aba já autenticada. NÃO criar tenant fictício.
   const current = await chrome.tabs.get(tabId);
-  const sameTask = (() => {
-    try {
-      const a = new URL(current.url);
-      const b = new URL(url);
-      return a.origin === b.origin && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '') && a.searchParams.get('tid') === b.searchParams.get('tid');
-    } catch { return false; }
-  })();
-  if (!sameTask) await chrome.tabs.update(tabId,{url,active:true});
-  for(let i=0;i<90;i++){
-    if(cancelled)throw Error('Interrompido pelo usuário.');
+  if (current.url !== target.href) {
+    await chrome.tabs.update(tabId, {url:target.href,active:true});
+  }
+  for (let i=0;i<75;i++) {
+    if (cancelled) throw Error('Interrompido pelo usuário.');
     await sleep(400);
     try {
-      const state=await script(inspect,[card.code]);
-      if(state?.ready)return state;
-    }catch {}
+      const view = await script(inspect,[card.code]);
+      if (view?.ready) return view;
+      if (i >= 4) {
+        const diagnostic = await script(() => {
+          const t = document.body?.innerText?.trim() || '';
+          return t.length < 700 && /TenantId not found|NotFound.*TenantId|tenant.*not found/i.test(t) ? t.slice(0,700) : null;
+        });
+        if (diagnostic) throw Error('O Planner rejeitou o contexto do tenant. Abra novamente o quadro na sua conta Microsoft 365 e tente outra vez.');
+      }
+    } catch (error) {
+      if (/Planner rejeitou o contexto/.test(error.message)) throw error;
+    }
   }
-  throw Error(card.code+': não foi possível localizar a checklist do card.');
+  throw Error(card.code + ': a tarefa não abriu na aba autenticada. Confira se o ID do card pertence a este plano.');
 }
 function inspect(code){
   const n=x=>String(x??'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
