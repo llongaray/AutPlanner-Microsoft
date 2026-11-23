@@ -29,6 +29,18 @@ function selectWhere(predicate) {
   for (const card of cards) document.querySelector('input[data-code="' + CSS.escape(card.code) + '"]').checked = predicate(card);
   count();
 }
+function configurePrefixSelector() {
+  const select = $('#prefix');
+  const choices = [...new Set(cards.map(card => card.code.replace(/\d+$/, '')))].sort();
+  select.replaceChildren();
+  for(const prefix of choices){
+    const option=document.createElement('option');
+    option.value=prefix;
+    option.textContent=prefix;
+    select.append(option);
+  }
+  $('#prefix-all').onclick = () => selectWhere(card=>card.code.startsWith(select.value));
+}
 // Os dados são privados: não fazem parte do repositório público.
 const validateCards = value => {
   if (!Array.isArray(value) || !value.length || !value.every(c =>
@@ -110,9 +122,19 @@ function renderCards() {
   }
   $('#all').onclick = () => selectWhere(() => true);
   $('#none').onclick = () => selectWhere(() => false);
+  configurePrefixSelector();
   $('#run').onclick = run;
   $('#stop').onclick = () => {cancelled = true;status('Interrupção solicitada...');};
   $('#copy').onclick = () => navigator.clipboard.writeText($('#log').textContent);
+  $('#save-log').onclick = () => {
+    const blob=new Blob([$('#log').textContent || 'Nenhum evento.'],{type:'text/plain;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const anchor=document.createElement('a');
+    anchor.href=url;
+    anchor.download='aray-planner-relatorio-'+new Date().toISOString().slice(0,10)+'.txt';
+    anchor.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+  };
   selectWhere(() => false);
   status('Configuração carregada. Selecione uma Story para o primeiro teste.');
 }
@@ -156,8 +178,12 @@ function boardFromTab(url) {
 async function findTab() {
   const tabs = (await chrome.tabs.query({})).filter(t => isPlanner(t.url));
   if (!tabs.length) throw Error('Abra o Planner em uma aba deste perfil antes de executar.');
-  const candidate = tabs.find(t => boardFromTab(t.url) && /\/view\/board(?:\/|$)/.test(new URL(t.url).pathname));
-  if (!candidate) throw Error('Não foi encontrada uma aba do Planner com URL válida de Quadro e tid. Abra DEMANDAS - NI2 e confira o endereço da aba.');
+  const configuredPath=new URL(config.taskUrlBase).pathname;
+  const planId=configuredPath.match(/\/plan\/([^/]+)\/view\/board\/task\/$/)?.[1];
+  if(!planId) throw Error('config.local.json: endereço do plano não reconhecido.');
+  const boards=tabs.filter(t => boardFromTab(t.url) && /\/view\/board(?:\/|$)/.test(new URL(t.url).pathname));
+  const candidate=boards.find(t => new URL(t.url).pathname.includes('/plan/'+planId+'/view/board'));
+  if(!candidate) throw Error('Nenhuma aba do Plano '+planId+' está aberta em Quadro. Abra o plano correto antes de executar.');
   boardContext = boardFromTab(candidate.url);
   log('Plano autenticado reconhecido pela URL da aba aberta; contexto de tenant validado.');
   return candidate;
@@ -436,8 +462,9 @@ async function run(){
       log('SUCESSO '+card.code+': '+card.tasks.length+' itens validados');
       await closeFinishedCard(card);
     }
-    status(cancelled?'Interrompido pelo usuário.':'SUCESSO! '+totals.cards+' Stories validadas; '+totals.added+' itens inseridos.');
-    log(cancelled?'Interrompido':'FINALIZADO COM SUCESSO');
+    const complete = !cancelled && totals.cards === queue.length;
+    status(complete ? 'SUCESSO! '+totals.cards+' Stories validadas; '+totals.added+' itens inseridos.' : 'INTERROMPIDO: '+totals.cards+' de '+queue.length+' Stories validadas.');
+    log(complete ? 'FINALIZADO COM SUCESSO' : 'EXECUÇÃO INTERROMPIDA — Stories restantes não processadas');
   }catch(error){
     totals.errors++;status('ERRO: '+error.message);log('ERRO: '+(error.stack||error.message));
   }finally{

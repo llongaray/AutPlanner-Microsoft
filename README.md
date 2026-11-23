@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.3.1 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.4.0 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -136,3 +136,12 @@ O formato antigo de strings continua aceito (interpretado como `completed:false`
 Depois de inserir uma Task, o Planner pode recriar o campo `Adicionar um item` e perder o foco sem qualquer interação do usuário. A extensão agora realiza até **cinco tentativas controladas** de localizar o campo vazio, rola-o até a área visível, confere a identidade do campo focado e, se necessário, clica no seu centro pelo Chrome DevTools Protocol. A cada tentativa, a lista é conferida novamente para não duplicar um item já incluído. A extensão nunca digita sobre um campo ocupado.
 
 A verificação continua sem reload por Task, e os comportamentos `completed:false` e fechamento automático permanecem. Se o foco não puder ser confirmado, a execução é interrompida sem sobrescrever texto. **Teste inicialmente a ZBX-US09** e confira o item que já foi incluído anteriormente.
+
+## Versão 4.4.0 — Compatibilidade multiépico e segurança operacional
+
+- Seletor de prefixo que funciona com VM-US e ZBX-US; o usuário importa um conjunto de cards por vez.
+- Validação do ID do plano configurado contra a aba autenticada: impede operar no plano errado.
+- Exportação dos logs para TXT, além do botão de copiar.
+- Execução interrompida não é mais relatada como sucesso integral.
+- Os fluxos já validados de digitação, cinco tentativas de foco, conferência sem refresh e fechamento automático não foram modificados.
+- A importação de outro cards.json substitui apenas os dados locais do painel, nunca apaga Tasks no Planner.
