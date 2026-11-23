@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.2.3 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.2.4 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -118,3 +118,7 @@ Se a extensão for removida e instalada novamente com outro ID, talvez seja nece
 A versão anterior aceitava um `tid` fictício e um ID de tarefa de exemplo, que levavam a uma tela JSON `TenantId not found`. Agora os campos de importação rejeitam placeholders, validam o formato UUID de `tid` e a navegação **usa o contexto do tenant da aba do Planner que já está autenticada** (em vez de injetar o `tid` do arquivo na URL). A extensão só navega entre Stories, sem fazer refresh em cada item de checklist.
 
 Para usar as 16 Stories reais, importe o pacote **ARAY_Planner_Configuracao_Completa_ZBX.zip** entregue separadamente, contendo `cards.json` e `config.local.json`, no próprio painel. O repositório continua público sem IDs internos da organização. Após atualizar, feche e reabra a aba do painel e, se necessário, recarregue a extensão em `chrome://extensions`.
+
+## Correção 4.2.4 — URL do Planner (rota /ui/web/plan/)
+
+Corrigido o reconhecimento do formato atual `https://planner.cloud.microsoft/ui/web/plan/<planId>/view/board?tid=<tenantId>`, além das rotas legadas `/webui/v1/plan/` e `/webui/plan/`. A extensão conserva o caminho da aba autenticada e somente troca o card ao passar de uma Story para outra, sem recarregar a mesma URL durante a verificação dos checklists.

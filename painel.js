@@ -136,7 +136,7 @@ function isPlanner(url) {
 function boardFromTab(url) {
   const parsed = new URL(url);
   if (parsed.hostname !== 'planner.cloud.microsoft') return null;
-  const match = parsed.pathname.match(/^(\/webui\/(?:v1\/)?plan\/[^/]+\/view\/board)(?:\/task\/[^/]+)?\/?$/);
+  const match = parsed.pathname.match(/^(\/(?:ui\/web|webui(?:\/v1)?)\/plan\/[^/]+\/view\/board)(?:\/task\/[^/]+)?\/?$/);
   if (!match) return null;
   parsed.pathname = match[1];
   parsed.hash = '';
@@ -148,7 +148,7 @@ async function findTab() {
   const tabs = (await chrome.tabs.query({})).filter(t => isPlanner(t.url));
   if (!tabs.length) throw Error('Abra o Planner em uma aba deste perfil antes de executar.');
   const candidate = tabs.find(t => boardFromTab(t.url) && /\/view\/board(?:\/|$)/.test(new URL(t.url).pathname));
-  if (!candidate) throw Error('Abra o plano DEMANDAS - NI2 na visualização Quadro antes de iniciar.');
+  if (!candidate) throw Error('Não foi encontrada uma aba do Planner com URL válida de Quadro e tid. Abra DEMANDAS - NI2 e confira o endereço da aba.');
   boardContext = boardFromTab(candidate.url);
   log('Plano autenticado reconhecido pela URL da aba aberta; contexto de tenant validado.');
   return candidate;
