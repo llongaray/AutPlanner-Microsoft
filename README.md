@@ -2,14 +2,14 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.2.0 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.2.1 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
 - Seleção múltipla de Stories por código/prefixo.
 - Abertura automática de cada tarefa pelo ID exportado do Planner.
 - Inclusão exclusiva de itens ausentes, evitando duplicações.
-- Confirmação de persistência por até cinco leituras, com espera pela sincronização.
+- Validação da lista por até cinco leituras **sem recarregar a página** (observação do DOM atual).
 - Relatório de cards validados, itens inseridos, existentes e erros.
 - Interrupção segura diante de resultados inconclusivos.
 - Utiliza **o perfil do Chrome já logado**, sem solicitar senha ou token.
@@ -97,3 +97,9 @@ Código em JavaScript sem build ou dependências externas. Verifique sintaxe com
 ## Licença
 
 GPL-3.0 — consulte [LICENSE](LICENSE).
+
+## Correção 4.2.1 — Navegação sem refresh contínuo
+
+A extensão **navega somente ao mudar de Story**. A conferência depois de inserir cada item e a validação final consultam a checklist na aba já aberta, sem repetir `chrome.tabs.update` para a mesma URL. Isso reduz recarregamentos, perda de foco e lentidão.
+
+**Nota de validação:** a leitura sem refresh confirma a presença do item na interface atual, mas não é prova independente de persistência no servidor. Para uma verificação adicional, reabra manualmente a Story depois do lote. Em caso de erro, a rotina pára sem excluir ou duplicar itens.

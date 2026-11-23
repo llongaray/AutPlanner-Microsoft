@@ -70,7 +70,16 @@ async function findTab() {
 }
 async function navigate(card) {
   const url=config.taskUrlBase+encodeURIComponent(card.id)+'?tid='+encodeURIComponent(config.tid);
-  await chrome.tabs.update(tabId,{url,active:true});
+  // Altere a URL apenas na mudança de Story. A leitura não deve causar reload.
+  const current = await chrome.tabs.get(tabId);
+  const sameTask = (() => {
+    try {
+      const a = new URL(current.url);
+      const b = new URL(url);
+      return a.origin === b.origin && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '') && a.searchParams.get('tid') === b.searchParams.get('tid');
+    } catch { return false; }
+  })();
+  if (!sameTask) await chrome.tabs.update(tabId,{url,active:true});
   for(let i=0;i<90;i++){
     if(cancelled)throw Error('Interrompido pelo usuário.');
     await sleep(400);
@@ -135,7 +144,8 @@ async function persisted(card,item){
   for(let attempt=1;attempt<=5;attempt++){
     if(cancelled)throw Error('Interrompido pelo usuário.');
     await sleep(attempt===1?1200:1800);
-    const fresh=await navigate(card);
+    // Inspecione a mesma página; nunca reabra o card dentro do polling.
+    const fresh=await script(inspect,[card.code]);
     if(exists(fresh,item)){
       if(attempt>1)log(card.code+': item confirmado após leitura '+attempt+'/5');
       return true;
@@ -199,12 +209,12 @@ async function run(){
         if(!exists(scan,item)&&!(await persisted(card,item)))throw Error(card.code+': item não persistiu: '+item);
       }
       if(cancelled)break;
-      let final=await navigate(card);
+      let final=await script(inspect,[card.code]);
       let missing=card.tasks.filter(item=>!exists(final,item));
       for(let retry=1;missing.length&&retry<=4;retry++){
-        log(card.code+': conferência final, nova leitura '+retry+'/4');
+        log(card.code+': aguardando atualização da lista '+retry+'/4 (sem atualizar página)');
         await sleep(1800);
-        final=await navigate(card);
+        final=await script(inspect,[card.code]);
         missing=card.tasks.filter(item=>!exists(final,item));
       }
       if(missing.length)throw Error(card.code+': itens não confirmados: '+missing.join(' | '));
