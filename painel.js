@@ -4,6 +4,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const norm = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR');
 const taskText = task => typeof task === 'string' ? task : task.text;
 const taskCompleted = task => typeof task !== 'string' && task.completed === true;
+const MAX_CHECKLIST_TEXT = 100;
+const taskVariants = task => [taskText(task),...(typeof task === 'string' ? [] : Array.isArray(task.aliases) ? task.aliases : [])];
+const existsTask = (scan,task) => taskVariants(task).some(value => exists(scan,value));
 let cards = [], config = {}, running = false, cancelled = false, tabId = null, attached = false;
 let boardContext = null; // Capturado da aba autenticada, nunca dos placeholders JSON.
 let totals = {cards:0,added:0,existing:0,errors:0};
@@ -49,7 +52,9 @@ const validateCards = value => {
     Array.isArray(c.tasks) && c.tasks.every(t =>
       typeof t === 'string' && t.trim().length > 0 ||
       t && typeof t === 'object' && typeof t.text === 'string' &&
-      t.text.trim().length > 0 && (t.completed === undefined || typeof t.completed === 'boolean')))) {
+      t.text.trim().length > 0 && (t.completed === undefined || typeof t.completed === 'boolean') &&
+      (t.aliases === undefined || Array.isArray(t.aliases) &&
+        t.aliases.every(alias => typeof alias === 'string' && alias.trim().length > 0))))) {
     throw Error('cards.json inválido. Esperado: lista com code, id, title e tasks.');
   }
   if (new Set(value.map(c => c.code)).size !== value.length)
@@ -57,6 +62,9 @@ const validateCards = value => {
   for (const card of value) {
     if (new Set(card.tasks.map(x => norm(taskText(x)))).size !== card.tasks.length)
       throw Error(card.code + ': checklist com itens duplicados no JSON.');
+    const longTask=card.tasks.find(x=>taskText(x).length > MAX_CHECKLIST_TEXT);
+    if(longTask) throw Error(card.code + ': item com '+taskText(longTask).length+
+      ' caracteres; máximo suportado '+MAX_CHECKLIST_TEXT+'. Importe o JSON atualizado, sem truncar textos automaticamente.');
   }
   return value;
 };
@@ -277,13 +285,13 @@ async function enter(){
   await cdp('Input.dispatchKeyEvent',{type:'char',text:'\r',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});
   await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});
 }
-async function persisted(card,item){
+async function persisted(card,item,task=item){
   for(let attempt=1;attempt<=5;attempt++){
     if(cancelled)throw Error('Interrompido pelo usuário.');
     await sleep(attempt===1?1200:1800);
     // Inspecione a mesma página; nunca reabra o card dentro do polling.
     const fresh=await script(inspect,[card.code]);
-    if(exists(fresh,item)){
+    if(existsTask(fresh,task)){
       if(attempt>1)log(card.code+': item confirmado após leitura '+attempt+'/5');
       return true;
     }
@@ -291,14 +299,14 @@ async function persisted(card,item){
   }
   return false;
 }
-async function insert(card,item){
-  if(exists(await script(inspect,[card.code]),item)) return 'existing';
+async function insert(card,item,task=item){
+  if(existsTask(await script(inspect,[card.code]),task)) return 'existing';
   let ready=false, lastReason='';
   // O DOM da tarefa pode mudar imediatamente após um Enter. O campo é localizado
   // novamente, em vez de reutilizar coordenadas ou referências de um input anterior.
   for(let attempt=1;attempt<=5;attempt++){
     if(cancelled) throw Error('Interrompido pelo usuário.');
-    if(exists(await script(inspect,[card.code]),item)) return 'existing';
+    if(existsTask(await script(inspect,[card.code]),task)) return 'existing';
     await sleep(attempt===1?250:450);
     const entry=await script(focusEntry);
     if(!entry?.ok){lastReason=entry?.error||'campo não encontrado';continue;}
@@ -327,12 +335,12 @@ async function insert(card,item){
   await sleep(450);
   const after=await script(inspectActive);
   if(norm(after?.value)!==norm(item)){
-    if(await persisted(card,item)) return 'added';
+    if(await persisted(card,item,task)) return 'added';
     throw Error(card.code+': texto do novo item não confirmado, interrupção segura: '+item);
   }
   await enter();
   await sleep(700);
-  if(await persisted(card,item)) return 'added';
+  if(await persisted(card,item,task)) return 'added';
   throw Error(card.code+': Planner não confirmou a persistência do item: '+item);
 }
 function locateChecklistCheckbox(item) {
@@ -429,12 +437,12 @@ async function run(){
         if(cancelled)break;
         const task=card.tasks[i];
         const item=taskText(task);
-        if(exists(await script(inspect,[card.code]),item)){
+        if(existsTask(await script(inspect,[card.code]),task)){
           totals.existing++;
           log(card.code+': '+(i+1)+'/'+card.tasks.length+' já existente');
           continue;
         }
-        const result=await insert(card,item);
+        const result=await insert(card,item,task);
         if(result==='added'){
           totals.added++;
           log(card.code+': '+(i+1)+'/'+card.tasks.length+' inserido');
@@ -445,16 +453,16 @@ async function run(){
         }
         else{totals.existing++;log(card.code+': '+(i+1)+'/'+card.tasks.length+' já existente');}
         const scan=await script(inspect,[card.code]);
-        if(!exists(scan,item)&&!(await persisted(card,item)))throw Error(card.code+': item não persistiu: '+item);
+        if(!existsTask(scan,task)&&!(await persisted(card,item,task)))throw Error(card.code+': item não persistiu: '+item);
       }
       if(cancelled)break;
       let final=await script(inspect,[card.code]);
-      let missing=card.tasks.filter(task=>!exists(final,taskText(task)));
+      let missing=card.tasks.filter(task=>!existsTask(final,task));
       for(let retry=1;missing.length&&retry<=4;retry++){
         log(card.code+': aguardando atualização da lista '+retry+'/4 (sem atualizar página)');
         await sleep(1800);
         final=await script(inspect,[card.code]);
-        missing=card.tasks.filter(task=>!exists(final,taskText(task)));
+        missing=card.tasks.filter(task=>!existsTask(final,task));
       }
       if(missing.length)throw Error(card.code+': itens não confirmados: '+missing.map(taskText).join(' | '));
       totals.cards++;

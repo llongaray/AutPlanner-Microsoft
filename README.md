@@ -2,7 +2,7 @@
 
 Extensão local para Google Chrome (Manifest V3) que automatiza **checklists de tarefas no Microsoft Planner**, aproveitando a sessão Microsoft 365 já autenticada no perfil atual do navegador.
 
-> **Status:** versão 4.4.0 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
+> **Status:** versão 4.4.1 — experimental. A automação depende da interface web do Planner e deve ser testada primeiro em uma única Story. Não é produto oficial da Microsoft.
 
 ## Funcionalidades
 
@@ -145,3 +145,9 @@ A verificação continua sem reload por Task, e os comportamentos `completed:fal
 - Execução interrompida não é mais relatada como sucesso integral.
 - Os fluxos já validados de digitação, cinco tentativas de foco, conferência sem refresh e fechamento automático não foram modificados.
 - A importação de outro cards.json substitui apenas os dados locais do painel, nunca apaga Tasks no Planner.
+
+## Correção 4.4.1 — Textos longos de checklist
+
+A inserção de um item com mais de 100 caracteres pode provocar truncamento no Microsoft Planner, resultando em um registro visível, mas não reconhecido pela extensão. O validador agora impede importar checklists com títulos acima de 100 caracteres, sem truncar automaticamente textos existentes. O campo opcional `aliases` identifica variações históricas (inclusive o antigo texto longo de `VM-US02`) evitando duplicação.
+
+Formato: `{"text":"Título de até 100 caracteres","completed":false,"aliases":["Texto original antigo"]}`. Os `aliases` são usados somente para conferir itens já existentes, nunca para gravar novas Tasks. Importe novamente o JSON atualizado do VivoMonitor, com o sexto item da `VM-US02` reduzido e o texto antigo registrado em `aliases`.
