@@ -1,0 +1,11 @@
+[
+  {
+    "code": "ZBX-US02",
+    "title": "ZBX-US02 — Exemplo de checklist",
+    "id": "SUBSTITUIR_PELO_ID_DA_TAREFA",
+    "tasks": [
+      "Verificar conexão com a API",
+      "Validar dados coletados"
+    ]
+  }
+]

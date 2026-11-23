@@ -1,0 +1,6 @@
+# Configuração local e identificadores corporativos
+/cards.json
+/config.local.json
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "ARAY Planner — Checklists",
+  "version": "4.2.0",
+  "description": "Automação de checklists do Microsoft Planner com validação da persistência.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "debugger"
+  ],
+  "host_permissions": [
+    "https://planner.cloud.microsoft/*",
+    "https://tasks.office.com/*"
+  ],
+  "action": {
+    "default_title": "Abrir painel ARAY Planner"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
